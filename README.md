@@ -23,6 +23,26 @@ LHDN YA 2025 list — see the [reference table](#-tax-relief-reference-ya-2025-f
 
 ---
 
+> ### 📌 Scope of This Tool — Year of Assessment (YA) 2025
+>
+> This tool is designed exclusively to assist with the **organisation and categorisation
+> of receipts for the Year of Assessment (YA) 2025**, which covers the basis period
+> **1 January 2025 to 31 December 2025**. It supports the preparation of the Malaysian
+> individual income tax return submitted to the **Inland Revenue Board of Malaysia
+> (IRBM / Lembaga Hasil Dalam Negeri, LHDN)** in **2026** via the
+> **MyTax e-Filing portal** at [mytax.hasil.gov.my](https://mytax.hasil.gov.my).
+>
+> | Form | Applicable to | e-Filing deadline |
+> |---|---|---|
+> | **Form B** | Individuals with business or self-employment income | **30 June 2026** |
+> | **Form BE** | Individuals with employment income only | **30 April 2026** |
+>
+> All tax-relief categories and limits implemented in this tool reflect the **YA 2025
+> schedule** as published by LHDN under the Income Tax Act 1967 (ITA 1967). This tool
+> is **not applicable** to YA 2024 or any prior year of assessment.
+
+---
+
 ## ✨ What it does
 
 - **One tap.** Send a photo; get back a clean summary in seconds.
