@@ -1,0 +1,22 @@
+# ── Secrets — NEVER commit these ───────────────────────────────────────
+token.json
+client_secret.json
+service_account.json
+*credentials*.json
+receiptbot.env
+*.env
+!receiptbot.env.template
+
+# ── Python ─────────────────────────────────────────────────────────────
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ── OS / editor ────────────────────────────────────────────────────────
+.DS_Store
+*.swp
+.idea/
+.vscode/

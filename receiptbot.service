@@ -1,0 +1,18 @@
+[Unit]
+Description=Telegram Receipt Bot (Malaysian Tax)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# If your Linux username is not "apple", replace it in the 3 lines below.
+User=apple
+Group=apple
+WorkingDirectory=/home/apple/receiptbot
+ExecStart=/home/apple/receiptbot/venv/bin/python bot.py
+EnvironmentFile=/etc/receiptbot.env
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
