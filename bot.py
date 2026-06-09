@@ -284,7 +284,9 @@ def classify_and_extract(ocr_text: str) -> tuple[str, dict]:
 
 # ── Regex/keyword fallback ─────────────────────────────────────────────
 _RELIEF_HINTS = [
-    (r"pharmacy|clinic|hospital|dental|optic|guardian|watson|caring|farmasi", "Medical (Self/Spouse/Child)"),
+    (r"dental|dentist|gigi|orthodont", "Dental Treatment"),
+    (r"vaccin|vaksin|imunisasi|immuni", "Vaccination"),
+    (r"pharmacy|clinic|hospital|optic|guardian|watson|caring|farmasi|klinik|hospital", "Medical (Self/Spouse/Child)"),
     (r"book|kinokuniya|mph|popular|computer|laptop|printer|streamyx|unifi|maxis|celcom|digi|internet", "Lifestyle (Books/Computer/Internet)"),
     (r"gym|fitness|sport|decathlon|al[- ]?ikhsan", "Sports Equipment & Activities"),
     (r"insurance|takaful|prudential|aia|great eastern", "Education & Medical Insurance"),
@@ -392,6 +394,13 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"💰 {amount_str}\n"
             f"🏷️ {category}\n"
         )
+        if receipt_type == cat.TYPE_EXPENSE:
+            box = cat.form_b_box(category)
+            summary += f"📦 Form B: {box} · {cat.form_b_box_label(box)}\n"
+        else:
+            cap = cat.relief_cap(category)
+            if cap:
+                summary += f"🧾 Relief cap: RM {cap:,.0f}\n"
         if drive_link and drive_link != "upload failed":
             folder = cat.RELIEF_FOLDER if receipt_type == cat.TYPE_RELIEF else cat.EXPENSE_FOLDER
             summary += f"📁 {folder} / {cat.folder_name(category)}\n[View receipt]({drive_link})\n"

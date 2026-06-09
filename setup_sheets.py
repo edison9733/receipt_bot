@@ -29,7 +29,11 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-from categories import EXPENSE_CATEGORIES, RELIEF_TYPES, RELIEF_LIMITS
+from categories import (
+    EXPENSE_CATEGORIES, RELIEF_TYPES, RELIEF_LIMITS,
+    EXPENSE_FORM_B_BOX, form_b_box_label,
+    ASSESSMENT_YEAR, RECEIPT_RETENTION_YEARS, FILING_DEADLINES,
+)
 
 # ── Config (env-driven; defaults work in the VM and on the Mac) ──────────
 SHEET_ID = os.environ.get("SHEET_ID")
@@ -70,6 +74,17 @@ def get_creds():
 # ── Colours (RGB 0-255 → 0-1 floats) ───────────────────────────────────
 def rgb(r, g, b):
     return {"red": r / 255, "green": g / 255, "blue": b / 255}
+
+
+# ── Date helper for the YA / filing-deadline banner ─────────────────────
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _pretty(iso):
+    """'2026-06-30' → '30 Jun 2026' for a human-friendly banner."""
+    y, m, d = (int(x) for x in iso.split("-"))
+    return f"{d} {_MONTHS[m - 1]} {y}"
 
 
 WHITE = rgb(255, 255, 255)
@@ -288,11 +303,22 @@ def main():
         data.append(row)
         return len(data)            # 1-indexed row number just written
 
-    exp_title = add(["📘  EXPENSES SUMMARY", "", "", ""])
+    # Info banner: assessment year + filing deadlines + receipt retention
+    b_due  = _pretty(FILING_DEADLINES["form_b_with_business"]["due"])
+    be_due = _pretty(FILING_DEADLINES["form_be_no_business"]["due"])
+    banner1 = add([f"🧾  MALAYSIAN TAX RECEIPT TRACKER — {ASSESSMENT_YEAR}", "", "", ""])
+    banner2 = add([f"Income earned 1 Jan–31 Dec 2025  ·  e-File by {b_due} (Form B, business) "
+                   f"or {be_due} (Form BE)  ·  keep receipts {RECEIPT_RETENTION_YEARS} years",
+                   "", "", ""])
+    add(["", "", "", ""])
+
+    exp_title = add(["📘  EXPENSES SUMMARY (by category)", "", "", ""])
     exp_sub   = add(["Category", "Total (RM)", "Count", "Avg (RM)"])
     exp_first = len(data) + 1
+    cat_row   = {}
     for c in EXPENSE_CATEGORIES:
         r = len(data) + 1
+        cat_row[c] = r
         add([c,
              f'=SUMIFS(Expenses!$D$2:$D${DATA_END},Expenses!$F$2:$F${DATA_END},"{c}")',
              f'=COUNTIF(Expenses!$F$2:$F${DATA_END},"{c}")',
@@ -304,9 +330,26 @@ def main():
                      f"=IFERROR(B{len(data) + 1}/C{len(data) + 1},0)"])
 
     add(["", "", "", ""])
+
+    # Expenses regrouped by Form B Part-N box. Each box total just adds up the
+    # category totals above, so the two blocks can never disagree. N-boxes go in
+    # numeric order with CAPITAL (capital allowance) listed last.
+    def _box_sort(b):
+        return (1, 0) if b == "CAPITAL" else (0, int(b[1:]))
+    ordered_boxes = sorted(set(EXPENSE_FORM_B_BOX.values()), key=_box_sort)
+    box_title = add(["📦  EXPENSES BY FORM B BOX (Part N)", "", "", ""])
+    box_sub   = add(["Form B Box", "Total (RM)", "", ""])
+    box_first = len(data) + 1
+    for box in ordered_boxes:
+        cats = [c for c in EXPENSE_CATEGORIES if EXPENSE_FORM_B_BOX.get(c) == box]
+        refs = "+".join(f"B{cat_row[c]}" for c in cats)
+        add([f"{box} · {form_b_box_label(box)}", f"={refs}", "", ""])
+    box_last  = len(data)
+
+    add(["", "", "", ""])
     add(["", "", "", ""])
 
-    rel_title = add(["📗  TAX RELIEF SUMMARY (YA 2025)", "", "", ""])
+    rel_title = add([f"📗  TAX RELIEF SUMMARY ({ASSESSMENT_YEAR})", "", "", ""])
     rel_sub   = add(["Relief Type", "Claimed (RM)", "Max Limit (RM)", "Remaining (RM)"])
     rel_first = len(data) + 1
     for rt in RELIEF_TYPES:
@@ -320,6 +363,18 @@ def main():
     rel_last  = len(data)
     rel_total = add(["TOTAL RELIEF CLAIMED", f"=SUM(B{rel_first}:B{rel_last})", "", ""])
 
+    add(["", "", "", ""])
+    note1 = add(["ⓘ  Medical sub-caps (Vaccination, Dental, Check-up/Mental-health, "
+                 "Child learning-disability) share the RM10,000 umbrella — never sum past RM10,000.",
+                 "", "", ""])
+    note2 = add(["ⓘ  Disabled child: RM8,000 base + RM8,000 if aged 18+ in higher education "
+                 "= up to RM16,000.", "", "", ""])
+    note3 = add(["ⓘ  First-home loan interest: RM7,000 (house ≤ RM500k) or RM5,000 "
+                 "(RM500k–RM750k), claimable for 3 consecutive YAs.", "", "", ""])
+    note4 = add(["ⓘ  Expenses follow ITA 1967 s.33 (wholly & exclusively for business); "
+                 "s.39 disallows private/capital items. Equipment & Software is a capital "
+                 "allowance, not an N-box expense.", "", "", ""])
+
     ss.values().update(
         spreadsheetId=SHEET_ID, range="Summary!A1",
         valueInputOption="USER_ENTERED", body={"values": data},
@@ -328,8 +383,8 @@ def main():
     # ── Summary formatting ──────────────────────────────────────────────
     print("🎨 Formatting Summary…")
 
-    def band(r1, bg, size, white=False, fields="backgroundColor,textFormat"):
-        tf = {"bold": True, "fontSize": size, "fontFamily": "Google Sans"}
+    def band(r1, bg, size, white=False, bold=True, fields="backgroundColor,textFormat"):
+        tf = {"bold": bold, "fontSize": size, "fontFamily": "Google Sans"}
         if white:
             tf["foregroundColor"] = WHITE
         return {"repeatCell": {
@@ -356,29 +411,53 @@ def main():
             "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": "#,##0"}}},
             "fields": "userEnteredFormat.numberFormat"}})
 
-    # Long relief names wrap (height grows; columns stay put)
-    for first, last in [(exp_first, exp_last), (rel_first, rel_last)]:
+    # Form B box totals: money format on column B only
+    sfmt.append({"repeatCell": {
+        "range": {"sheetId": sum_id, "startRowIndex": box_first - 1, "endRowIndex": box_last,
+                  "startColumnIndex": 1, "endColumnIndex": 2},
+        "cell": {"userEnteredFormat": {
+            "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+            "horizontalAlignment": "RIGHT"}},
+        "fields": "userEnteredFormat(numberFormat,horizontalAlignment)"}})
+
+    # Long category / relief / box names wrap (height grows; columns stay put)
+    for first, last in [(exp_first, exp_last), (box_first, box_last), (rel_first, rel_last)]:
         sfmt.append({"repeatCell": {
             "range": {"sheetId": sum_id, "startRowIndex": first - 1, "endRowIndex": last,
                       "startColumnIndex": 0, "endColumnIndex": 1},
             "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP", "verticalAlignment": "TOP"}},
             "fields": "userEnteredFormat(wrapStrategy,verticalAlignment)"}})
 
+    # Top info banner (assessment year + filing deadlines + retention)
+    sfmt.append(band(banner1, SUM_TAB,            13, white=True))
+    sfmt.append(band(banner2, rgb(243, 229, 245),  9, bold=False))
+
     # Banners, sub-headers, totals
     sfmt.append(band(exp_title, EXP_HDR_BG, 14, white=True))
     sfmt.append(band(exp_sub,   EXP_SUB,    10))
     sfmt.append(band(exp_total, EXP_HDR_BG, 11, white=True))
+    sfmt.append(band(box_title, EXP_HDR_BG, 12, white=True))
+    sfmt.append(band(box_sub,   EXP_SUB,    10))
     sfmt.append(band(rel_title, REL_HDR_BG, 14, white=True))
     sfmt.append(band(rel_sub,   REL_SUB,    10))
     sfmt.append(band(rel_total, REL_HDR_BG, 11, white=True))
 
     # Centre the numeric sub-header labels
-    for sub in (exp_sub, rel_sub):
+    for sub in (exp_sub, box_sub, rel_sub):
         sfmt.append({"repeatCell": {
             "range": {"sheetId": sum_id, "startRowIndex": sub - 1, "endRowIndex": sub,
                       "startColumnIndex": 1, "endColumnIndex": 4},
             "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
             "fields": "userEnteredFormat.horizontalAlignment"}})
+
+    # Footnotes (LHDN caps / ITA notes): small grey italic, spills across the row
+    sfmt.append({"repeatCell": {
+        "range": {"sheetId": sum_id, "startRowIndex": note1 - 1, "endRowIndex": note4,
+                  "startColumnIndex": 0, "endColumnIndex": 4},
+        "cell": {"userEnteredFormat": {"textFormat": {
+            "italic": True, "fontSize": 9, "fontFamily": "Google Sans",
+            "foregroundColor": rgb(110, 110, 110)}}},
+        "fields": "userEnteredFormat.textFormat"}})
 
     # Summary column widths + tab colour + no freeze
     for i, w in enumerate([360, 130, 150, 150]):
@@ -409,6 +488,7 @@ def main():
     print("\n✅ Google Sheet rebuilt.")
     print(f"   📘 Expenses — {len(EXPENSES_HEADERS)} cols, {len(EXPENSE_CATEGORIES)} categories (frequency-ordered)")
     print(f"   📗 Relief   — {len(RELIEF_HEADERS)} cols, {len(RELIEF_TYPES)} relief types (frequency-ordered)")
+    print(f"   📦 Form B   — {len(ordered_boxes)} Part-N boxes ({', '.join(ordered_boxes)})")
     print(f"   📊 Summary  — auto-totals, most-used first")
     print(f"\n🔗 https://docs.google.com/spreadsheets/d/{SHEET_ID}")
 

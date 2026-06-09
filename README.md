@@ -40,6 +40,10 @@ LHDN YA 2025 list — see the [reference table](#-tax-relief-reference-ya-2025-f
 > All tax-relief categories and limits implemented in this tool reflect the **YA 2025
 > schedule** as published by LHDN under the Income Tax Act 1967 (ITA 1967). This tool
 > is **not applicable** to YA 2024 or any prior year of assessment.
+>
+> 🗄️ **Record retention:** LHDN requires supporting documents (receipts, invoices) to be
+> kept for **7 years** from the end of the year of assessment. Keeping the original images
+> in Google Drive helps you meet this obligation.
 
 ---
 
@@ -319,39 +323,66 @@ Verified line-by-line on **2026-06-09** against the official LHDN
 These personal reliefs apply to **both Form B (business income)** and **Form BE
 (employment)** — they're identical; Form B simply adds business sections on top.
 Categories are listed **most-used → least-used** (matching the bot's dropdowns).
+**✦ = new or increased for YA 2025.**
 
 | # | Relief category | Max (RM) | Notes |
 |--:|---|--:|---|
 | 1 | Lifestyle (Books / Computer / Internet) | 2,500 | books, PC/phone/tablet, internet, self-dev courses |
-| 2 | Medical (Self / Spouse / Child) | 10,000 | serious illness, fertility, vaccination, dental |
-| 3 | Life Insurance + EPF | 7,000 | private: EPF ≤4,000 + life ≤3,000; pensioner: life ≤7,000 |
-| 4 | SOCSO / EIS | 350 | PERKESO (SOCSO + EIS combined) |
-| 5 | Self Education Fees | 7,000 | tertiary; upskilling courses sub-capped at 2,000 |
-| 6 | Sports Equipment & Activities | 1,000 | gear, facility/competition fees, gym membership |
-| 7 | Education & Medical Insurance | 4,000 | self / spouse / child |
-| 8 | PRS / Deferred Annuity | 3,000 | Private Retirement Scheme + deferred annuity |
-| 9 | Medical Check-up / Mental Health | 1,000 | **sub-limit inside** the 10,000 Medical cap |
-| 10 | Parents / Grandparents Medical | 8,000 | treatment/care; full check-up sub-limit 1,000 |
-| 11 | Childcare / Kindergarten | 3,000 | TASKA/TADIKA, child ≤6, shared by spouses |
-| 12 | SSPN Net Deposit | 8,000 | net savings, shared by spouses |
-| 13 | EV Charging / Food Waste Composter | 2,500 | home EV charger + composting machine |
-| 14 | Breastfeeding Equipment | 1,000 | female taxpayer, child ≤2, once per 2 years |
-| 15 | First Home Loan Interest | 7,000 | house ≤500k: 7,000; 500k–750k: 5,000 (SPA 2025–2027) |
-| 16 | Child Below 18 | 2,000 | per unmarried child under 18 |
-| 17 | Child 18+ in Education | 8,000 | diploma+ (MY) / degree+ (overseas); else 2,000 |
-| 18 | Spouse / Alimony | 4,000 | spouse with no income / alimony paid |
-| 19 | Self / Individual Relief | 9,000 | automatic (individual & dependent relatives) |
-| 20 | Disabled Individual | 7,000 | additional, OKU-certified self |
-| 21 | Disabled Spouse | 6,000 | additional, disabled husband/wife |
-| 22 | Disabled Child | 8,000 | +8,000 more if 18+ in diploma+/degree+ study |
-| 23 | Basic Support Equipment (Disabled) | 6,000 | for disabled self/spouse/child/parent |
-| 24 | Child Disability Assessment / Early Intervention | 6,000 | **sub-limit inside** the 10,000 Medical cap (child ≤18) |
+| 2 | Medical (Self / Spouse / Child) | 10,000 | umbrella cap — the four sub-caps below count toward this |
+| 3 | Medical Check-up / Mental Health | 1,000 | **sub-cap inside 10,000**; incl. self-test kits & monitoring devices |
+| 4 | Vaccination | 1,000 | **sub-cap inside 10,000** |
+| 5 | Dental Treatment | 1,000 | **sub-cap inside 10,000**; examination & treatment |
+| 6 | Life Insurance + EPF | 7,000 | EPF ≤4,000 + life/takaful ≤3,000; pensioner may use full 7,000 |
+| 7 | SOCSO / EIS | 350 | PERKESO (SOCSO + EIS combined) |
+| 8 | Self Education Fees | 7,000 | tertiary; upskilling courses sub-capped at 2,000 |
+| 9 | Sports Equipment & Activities | 1,000 | ✦ up from 500; gear, facility/competition fees, gym |
+| 10 | Education & Medical Insurance | 4,000 | ✦ up from 3,000; self / spouse / child |
+| 11 | PRS / Deferred Annuity | 3,000 | Private Retirement Scheme + deferred annuity (to YA2030) |
+| 12 | Parents / Grandparents Medical | 8,000 | treatment/care; full check-up & vaccination sub-limit 1,000 |
+| 13 | Childcare / Kindergarten | 3,000 | TASKA/TADIKA, child ≤6, one parent per child |
+| 14 | SSPN Net Deposit | 8,000 | net savings, one parent per child (to YA2027) |
+| 15 | EV Charging / Food Waste Composter | 2,500 | ✦ home EV charger + composting machine (YA2025–2027) |
+| 16 | Breastfeeding Equipment | 1,000 | female taxpayer, child ≤2, once per 2 years |
+| 17 | First Home Loan Interest | 7,000 | ✦ house ≤500k: 7,000; 500k–750k: 5,000 (SPA 2025–2027, 3 YAs) |
+| 18 | Child Below 18 | 2,000 | per unmarried child under 18 |
+| 19 | Child 18+ Pre-University | 2,000 | A-Level / cert / matriculation / prep, full-time |
+| 20 | Child 18+ Tertiary (Diploma / Degree) | 8,000 | diploma+ (MY) / degree+ (overseas), full-time |
+| 21 | Child Learning Disability / Early Intervention | 6,000 | ✦ **sub-cap inside 10,000**; up from 4,000 (child ≤18) |
+| 22 | Spouse / Alimony | 4,000 | spouse with no income / alimony paid |
+| 23 | Self / Individual Relief | 9,000 | automatic (individual & dependent relatives) |
+| 24 | Disabled Individual | 7,000 | ✦ up from 6,000; OKU-certified self |
+| 25 | Disabled Spouse | 6,000 | ✦ up from 5,000; disabled husband/wife |
+| 26 | Disabled Child | 8,000 | ✦ up from 6,000 (base) |
+| 27 | Disabled Child 18+ Higher Education | 8,000 | additional — stacks on base → up to 16,000 |
+| 28 | Basic Support Equipment (Disabled) | 6,000 | for disabled self / spouse / child / parent |
 | — | Other Relief | no cap | catch-all bucket for anything else |
 
 > ⚠️ **Not tax advice.** Limits and rules change — always confirm on
 > [hasil.gov.my](https://www.hasil.gov.my) or with a licensed tax agent before filing.
-> To change a category or amount, edit **`categories.py`** only (it's the single source of
-> truth), then re-run `setup_sheets.py`.
+> To change a relief, cap or expense mapping, edit **`tax_config.py`** (the single source of
+> truth — verified against the LHDN YA 2025 schedule); **`categories.py`** is a thin adapter
+> over it. After any edit, re-run `setup_sheets.py`.
+
+---
+
+## 📦 Business expenses → Form B (Part N) boxes
+
+For **Form B** filers, every expense category rolls up into a Part N income-statement box.
+The **Summary** tab totals your spending by box, so the figures transfer straight onto the
+return — and the bot prints the target box on each expense receipt's reply.
+
+| Form B box | Income-statement line | Expense categories |
+|---|---|---|
+| **N5** | Purchases & cost of production | Groceries\* |
+| **N17** | Rental / lease | Rent |
+| **N21** | Travelling and transport | Transportation, Travel |
+| **N24** | Other expenses | Food & Beverage, Communication, Utilities, Office Supplies, Subscriptions, Entertainment, Professional Services, Other |
+| **CAPITAL** | Capital allowance *(not an N-box)* | Equipment & Software |
+
+> \*Groceries are personal unless they are trading stock / raw material (then N5).
+> Deductibility follows **ITA 1967 s.33** (wholly & exclusively for business); **s.39**
+> disallows private and capital items. Computers, machinery and enduring software are
+> **capital allowances** — claimed separately, never as an N-box expense.
 
 ---
 
@@ -414,7 +445,8 @@ Part 8, run `authorize.py` on any computer with a browser, then copy the resulti
 | File | Purpose |
 |---|---|
 | `bot.py` | The Telegram bot: OCR → classify → Drive → Sheets. |
-| `categories.py` | **Single source of truth** for all categories & relief limits. |
+| `tax_config.py` | **Single source of truth** — LHDN YA 2025 reliefs, caps & Form B boxes. |
+| `categories.py` | Thin adapter over `tax_config.py` (the names bot & sheet import). |
 | `setup_sheets.py` | Builds/rebuilds the colour-coded Google Sheet (run once). |
 | `authorize.py` | One-time Google login that writes `token.json`. |
 | `requirements.txt` | Pinned Python dependencies. |
