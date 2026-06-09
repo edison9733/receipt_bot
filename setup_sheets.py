@@ -92,13 +92,13 @@ WHITE = rgb(255, 255, 255)
 # Expenses — Deep Blue
 EXP_HDR_BG = rgb(13, 71, 161)
 EXP_SUB    = rgb(187, 222, 251)
-EXP_ALT    = rgb(207, 230, 251)   # stripe: clearly visible light blue (was near-white)
+EXP_ALT    = rgb(30, 136, 229)    # stripe: medium blue (matches tab) → white text
 EXP_TAB    = rgb(30, 136, 229)
 
 # Relief — Deep Green
 REL_HDR_BG = rgb(27, 94, 32)
 REL_SUB    = rgb(200, 230, 201)
-REL_ALT    = rgb(210, 237, 212)   # stripe: clearly visible light green (was near-white)
+REL_ALT    = rgb(56, 142, 60)     # stripe: medium green (matches tab) → white text
 REL_TAB    = rgb(56, 142, 60)
 
 # Summary — Deep Purple tab
@@ -279,8 +279,8 @@ def main():
                 "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": i, "endIndex": i + 1},
                 "properties": {"pixelSize": w}, "fields": "pixelSize"}})
 
-        # Alternating row stripes — also force dark text so CF can never make
-        # stripe rows unreadable (CF overrides base cell format).
+        # Alternating row stripes — medium-colour background + white bold text so
+        # stripe rows are always clearly readable (CF overrides base cell format).
         fmt.append({"addConditionalFormatRule": {"rule": {
             "ranges": [{"sheetId": sid, "startRowIndex": 1, "endRowIndex": DATA_END,
                         "startColumnIndex": 0, "endColumnIndex": n}],
@@ -289,7 +289,7 @@ def main():
                               "values": [{"userEnteredValue": "=ISEVEN(ROW())"}]},
                 "format": {
                     "backgroundColor": cfg["alt"],
-                    "textFormat": {"foregroundColor": DARK},
+                    "textFormat": {"foregroundColor": WHITE, "bold": False},
                 }}},
             "index": 0}})
 
