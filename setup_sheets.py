@@ -92,13 +92,13 @@ WHITE = rgb(255, 255, 255)
 # Expenses — Deep Blue
 EXP_HDR_BG = rgb(13, 71, 161)
 EXP_SUB    = rgb(187, 222, 251)
-EXP_ALT    = rgb(227, 242, 253)
+EXP_ALT    = rgb(207, 230, 251)   # stripe: clearly visible light blue (was near-white)
 EXP_TAB    = rgb(30, 136, 229)
 
 # Relief — Deep Green
 REL_HDR_BG = rgb(27, 94, 32)
 REL_SUB    = rgb(200, 230, 201)
-REL_ALT    = rgb(232, 245, 233)
+REL_ALT    = rgb(210, 237, 212)   # stripe: clearly visible light green (was near-white)
 REL_TAB    = rgb(56, 142, 60)
 
 # Summary — Deep Purple tab
@@ -241,12 +241,19 @@ def main():
                       "startColumnIndex": 0, "endColumnIndex": n},
             "bottom": {"style": "SOLID_MEDIUM", "colorStyle": {"rgbColor": cfg["hdr_bg"]}}}})
 
-        # Whole data area: WRAP + top-align → rows grow in height, columns stay put
+        # Whole data area: WRAP + top-align + explicit dark text so every row is
+        # equally readable regardless of whether the stripe CF applies on top.
+        DARK = rgb(30, 30, 30)
         fmt.append({"repeatCell": {
             "range": {"sheetId": sid, "startRowIndex": 1, "endRowIndex": DATA_END,
                       "startColumnIndex": 0, "endColumnIndex": n},
-            "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP", "verticalAlignment": "TOP"}},
-            "fields": "userEnteredFormat(wrapStrategy,verticalAlignment)"}})
+            "cell": {"userEnteredFormat": {
+                "wrapStrategy": "WRAP",
+                "verticalAlignment": "TOP",
+                "textFormat": {"foregroundColor": DARK, "fontSize": 10,
+                               "fontFamily": "Google Sans"},
+            }},
+            "fields": "userEnteredFormat(wrapStrategy,verticalAlignment,textFormat)"}})
 
         # Long machine columns: CLIP so they can't inflate row height
         c0, c1 = cfg["clip_cols"]
@@ -272,14 +279,18 @@ def main():
                 "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": i, "endIndex": i + 1},
                 "properties": {"pixelSize": w}, "fields": "pixelSize"}})
 
-        # Alternating row stripes
+        # Alternating row stripes — also force dark text so CF can never make
+        # stripe rows unreadable (CF overrides base cell format).
         fmt.append({"addConditionalFormatRule": {"rule": {
             "ranges": [{"sheetId": sid, "startRowIndex": 1, "endRowIndex": DATA_END,
                         "startColumnIndex": 0, "endColumnIndex": n}],
             "booleanRule": {
                 "condition": {"type": "CUSTOM_FORMULA",
                               "values": [{"userEnteredValue": "=ISEVEN(ROW())"}]},
-                "format": {"backgroundColor": cfg["alt"]}}},
+                "format": {
+                    "backgroundColor": cfg["alt"],
+                    "textFormat": {"foregroundColor": DARK},
+                }}},
             "index": 0}})
 
         # Category / Relief-Type dropdown (frequency-ordered)
