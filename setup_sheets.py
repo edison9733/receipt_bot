@@ -97,16 +97,20 @@ SLATE_500 = rgb(100, 116, 139)    # #64748B  tab colour / footnote text
 SLATE_100 = rgb(241, 245, 249)    # #F1F5F9  sub-header / total-row bg
 SLATE_50  = rgb(248, 250, 252)    # #F8FAFC  alternating stripe (subtle)
 
-# Expenses
+# Accent stripe colours (dark enough for bright white text to pop)
+STRIPE_BLUE  = rgb(37, 99, 235)    # #2563EB  Expenses alternating row
+STRIPE_GREEN = rgb(21, 128, 61)    # #15803D  Relief alternating row
+
+# Expenses — Slate header + blue stripe
 EXP_HDR_BG = SLATE_800
 EXP_SUB    = SLATE_100
-EXP_ALT    = SLATE_50
+EXP_ALT    = STRIPE_BLUE
 EXP_TAB    = SLATE_500
 
-# Relief (same palette — visually unified)
+# Relief — Slate header + green stripe
 REL_HDR_BG = SLATE_800
 REL_SUB    = SLATE_100
-REL_ALT    = SLATE_50
+REL_ALT    = STRIPE_GREEN
 REL_TAB    = SLATE_500
 
 # Summary
@@ -285,7 +289,8 @@ def main():
                 "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": i, "endIndex": i + 1},
                 "properties": {"pixelSize": w}, "fields": "pixelSize"}})
 
-        # Alternating row stripes — very subtle Slate 50 tint, same dark text.
+        # Alternating row stripes — vivid blue (Expenses) / green (Relief)
+        # accent with BRIGHT WHITE bold text so the words pop on the colour.
         fmt.append({"addConditionalFormatRule": {"rule": {
             "ranges": [{"sheetId": sid, "startRowIndex": 1, "endRowIndex": DATA_END,
                         "startColumnIndex": 0, "endColumnIndex": n}],
@@ -294,7 +299,7 @@ def main():
                               "values": [{"userEnteredValue": "=ISEVEN(ROW())"}]},
                 "format": {
                     "backgroundColor": cfg["alt"],
-                    "textFormat": {"foregroundColor": SLATE_800},
+                    "textFormat": {"foregroundColor": WHITE, "bold": True},
                 }}},
             "index": 0}})
 
