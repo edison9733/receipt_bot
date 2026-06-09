@@ -1,6 +1,6 @@
 # 🧾 Telegram Receipt Bot — Malaysian Tax Edition
 
-> **Author:** [@edison9733](https://github.com/edison9733) &nbsp;•&nbsp; **Sponsored by Brainard** 
+> **Author:** [@edison9733](https://github.com/edison9733) &nbsp;•&nbsp; **Sponsored by Brainard**
 
 Snap a receipt in Telegram. The bot reads it, decides if it's a **tax Relief** or a
 general **Expense**, files the photo into the matching **Google Drive** folder, and
@@ -17,9 +17,11 @@ Form B / Form BE** filing.
         └──►  📊 Google Sheets   →  Relief tab  •  Expenses tab  •  auto Summary
 ```
 
-Everything lands in **your own** Google account (you stay the owner of every file).
-The tax-relief categories are **fact-checked line-by-line** against the official
-LHDN YA 2025 list — see the [reference table](#-tax-relief-reference-ya-2025-fact-checked).
+**One hosted bot, many users.** Each person connects **their own** Google account and
+pastes **their own** DeepSeek key — every file lands in *their* Drive, owned by *them*.
+No install, no VM, no copying IDs. The tax-relief categories are **fact-checked
+line-by-line** against the official LHDN YA 2025 list — see the
+[reference table](#-tax-relief-reference-ya-2025-fact-checked).
 
 ---
 
@@ -55,259 +57,110 @@ LHDN YA 2025 list — see the [reference table](#-tax-relief-reference-ya-2025-f
 - **Auto-totalled Sheet.** A Summary tab sums each category and shows relief left to claim.
 - **Auto-growing rows.** Long text wraps and the row grows in height — never overflows neighbours.
 - **Most-used first.** Dropdowns are ordered common → rare, so you never scroll.
-- **Runs forever.** A `systemd` service keeps it alive across reboots.
-- **No secrets in the repo.** OAuth keys and tokens stay on your machine only.
+- **Zero install for users.** Tap **Connect Google**, paste a DeepSeek key — that's the whole setup.
+- **Your data stays yours.** Files are created in *your* Google account; the bot only ever
+  touches files **it** created (least-privilege `drive.file` scope). Stored secrets are
+  **encrypted at rest**.
 
 ---
 
-## ✅ What you'll need (one-time accounts)
+## 🚀 Use it (for users) — 3 taps
+
+1. Open Telegram → message the bot → **/start**.
+2. **/connect** → tap **🔗 Connect Google** → approve Google's consent screen.
+   *(The bot auto-creates your **Receipt Tracker** sheet and a **Receipts** Drive folder.)*
+3. **/setkey** `sk-...` → paste your DeepSeek key (the bot deletes the message right after).
+
+Done. **Send a receipt photo** and it just works.
+
+> No DeepSeek key? The bot still runs with an offline keyword fallback (just less accurate),
+> or the operator can fund a shared key for everyone.
+
+### 📲 Commands
+
+| Command | What it does |
+|---|---|
+| `/start` | Welcome + where you are in setup. |
+| `/connect` | Link your Google account; auto-creates your sheet + folder. |
+| `/setkey sk-...` | Save your DeepSeek key (encrypted; the message is deleted). |
+| `/status` | Show your connection, sheet link, and key status. |
+| `/disconnect` | Revoke Google access and erase your stored data. |
+| *(send a photo)* | OCR → classify → file in Drive → log to your Sheet. |
+
+---
+
+## 🛠️ Host it yourself (one-time, for operators)
+
+You do a small **one-time** setup *once, ever* — then any number of users just `/connect`
+and `/setkey`. Nothing here is per-user.
+
+### What you'll need
 
 | You need | Where | Cost |
 |---|---|---|
-| A Mac | for OrbStack (or any Linux server — see [alt](#-alternative-run-on-a-cloud-server)) | — |
-| Telegram account | the app you already use | free |
-| Google account | Sheets + Drive | free |
-| DeepSeek API key | <https://platform.deepseek.com> | a few cents/month (optional*) |
+| Telegram bot token | [@BotFather](https://t.me/BotFather) | free |
+| A Google Cloud project + **Web** OAuth client | <https://console.cloud.google.com> | free |
+| A managed host with HTTPS + a volume | Railway / Render / Fly.io / Cloud Run | ~a few $/mo (free tiers exist) |
+| A DeepSeek key *(optional, shared)* | <https://platform.deepseek.com> | a few cents/receipt |
 
-\*Without a DeepSeek key the bot still runs using an offline keyword fallback — just less accurate.
+### 1 — Telegram bot token
+In Telegram, message **@BotFather** → `/newbot` → pick a name + a username ending in `bot`.
+Copy the `123456789:AA…` token → this is `TELEGRAM_TOKEN`.
 
-> Throughout this guide: **On your Mac:** = run in macOS Terminal. **Inside the VM:** =
-> run after you've opened the Linux machine with `orb -m receiptbot`.
+### 2 — Google Cloud project + OAuth client (the only "real" step)
+All in the browser at <https://console.cloud.google.com>:
 
----
+1. **Create a project** → name it `ReceiptBot`.
+2. **Enable APIs** (APIs & Services → Library): enable **Google Drive API** *and*
+   **Google Sheets API**. *(The bot calls the Sheets API to build the sheet, so it must be
+   enabled — but the only OAuth **scope** you request is the non-sensitive `drive.file`.)*
+3. **OAuth consent screen** (APIs & Services → OAuth consent screen):
+   - User type **External** → Create.
+   - Fill app name + your support/developer emails.
+   - **Scopes → Add** the single scope `…/auth/drive.file` (it's listed as *non-sensitive*).
+   - **Publish app → "In production".** ⚠️ Leaving it in *Testing* makes Google **revoke every
+     refresh token after 7 days** — users would have to reconnect weekly. Publishing fixes that.
+     Unverified + in production works fine for **personal-use apps under 100 users** (users just
+     click through a one-time *"Google hasn't verified this app"* screen). Because you only use
+     the non-sensitive `drive.file` scope, removing that warning later is the **light**
+     verification path — no costly CASA security audit.
+4. **Create credentials → OAuth client ID → Application type: Web application.**
+   - Under **Authorized redirect URIs**, add exactly: `https://YOUR-HOST/oauth2callback`
+     (must match your `BASE_URL`).
+   - Copy the **Client ID** → `GOOGLE_CLIENT_ID` and **Client secret** → `GOOGLE_CLIENT_SECRET`.
 
-## Part 1 — 🤖 Telegram bot token
-
-1. Open Telegram and search for **@BotFather**.
-2. Send `/newbot`, pick a name and a username ending in `bot`.
-3. BotFather replies with a token like `123456789:AA...`. **Copy it** → this is your `TELEGRAM_TOKEN`.
-
----
-
-## Part 2 — 🧠 DeepSeek API key *(recommended, optional)*
-
-1. Sign up at <https://platform.deepseek.com>.
-2. Add a little credit (classification costs ~RM0.01 per receipt).
-3. Go to **API Keys → Create**, copy the `sk-...` key → this is your `DEEPSEEK_API_KEY`.
-
----
-
-## Part 3 — ☁️ Google Cloud project (OAuth keys)
-
-This lets the bot write to *your* Drive and Sheets. All in the browser:
-
-1. Go to <https://console.cloud.google.com> → **Create Project** → name it `ReceiptBot`.
-2. **Enable APIs.** Open **APIs & Services → Library**, then enable both:
-   - **Google Drive API**
-   - **Google Sheets API**
-3. **Consent screen.** Go to **APIs & Services → OAuth consent screen**:
-   - User type: **External** → Create.
-   - App name `ReceiptBot`, your email for support + developer fields → Save.
-   - **Audience / Test users → Add users →** add **your own Gmail**. (Keeps it in "Testing"; that's fine forever.)
-4. **Create the key.** Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
-   - Application type: **Desktop app** → Create.
-   - Click **Download JSON**. Rename the file to **`client_secret.json`** and keep it handy.
-
-> 🔒 `client_secret.json` is a secret. Never commit it. The `.gitignore` already blocks it.
-
----
-
-## Part 4 — 📊 Create the Google Sheet (get `SHEET_ID`)
-
-1. Go to <https://sheets.new> → a blank spreadsheet opens.
-2. Rename it `Receipt Tracker` (top-left).
-3. Look at the URL: `docs.google.com/spreadsheets/d/`**`THIS_LONG_ID`**`/edit`.
-4. **Copy that ID** → this is your `SHEET_ID`. (Leave the sheet empty — `setup_sheets.py` builds it later.)
-
----
-
-## Part 5 — 📁 Create the Google Drive folder (get `DRIVE_FOLDER_ID`)
-
-1. Go to <https://drive.google.com> → **New → New folder** → name it `Receipts`.
-2. Double-click to open it.
-3. Look at the URL: `drive.google.com/drive/folders/`**`THIS_ID`**.
-4. **Copy that ID** → this is your `DRIVE_FOLDER_ID`.
-
-You now have **5 values** copied: `TELEGRAM_TOKEN`, `DEEPSEEK_API_KEY`, `SHEET_ID`,
-`DRIVE_FOLDER_ID`, and the `client_secret.json` file. Keep them for Part 9.
-
----
-
-## Part 6 — 🐳 Install OrbStack + create the Linux VM
-
-OrbStack runs a fast, lightweight Linux machine on your Mac.
-
-**Install OrbStack on your Mac:**
+### 3 — Generate an encryption key
+Secrets (Google refresh tokens + DeepSeek keys) are encrypted at rest. Generate one key
+**once** and keep it safe (losing it means everyone must reconnect):
 ```bash
-brew install orbstack
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
-*(No Homebrew? Download from <https://orbstack.dev> and drag to Applications.)*
+→ this is `FERNET_KEY`.
 
-**Create an Ubuntu machine named `receiptbot`:**
-```bash
-orb create ubuntu receiptbot
-```
+### 4 — Deploy the container
+A [`Dockerfile`](Dockerfile) is included — it bakes in `tesseract-ocr`, so **nobody installs
+anything**. Deploy the image to any managed host that gives you HTTPS and keeps it alive
+(**Railway / Render / Fly.io / Cloud Run** all work — the platform replaces `systemd`).
 
-**Open a shell inside that machine:**
-```bash
-orb -m receiptbot
-```
-Your prompt changes — you're now **inside the VM**. Everything below runs here.
+- **Mount a persistent volume at `/app/data`** so the encrypted SQLite datastore survives
+  redeploys (otherwise users must reconnect after each deploy).
+- Set the environment variables below (see [`.env.example`](.env.example)):
 
----
+| Var | Value |
+|---|---|
+| `TELEGRAM_TOKEN` | from BotFather |
+| `BASE_URL` | your public HTTPS URL, no trailing slash (e.g. `https://receiptbot.up.railway.app`) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | your Web OAuth client |
+| `FERNET_KEY` | the key from step 3 |
+| `DB_PATH` | `/app/data/receiptbot.db` (matches the mounted volume) |
+| `SHARED_DEEPSEEK_KEY` | *(optional)* a key **you** fund for users who haven't run `/setkey` |
+| `AUTHORIZED_USERS` | *(optional)* comma-separated Telegram IDs to restrict access |
 
-## Part 7 — ⚙️ Install the bot inside the VM
+That's it. The same app serves the Telegram bot (polling) **and** the `/oauth2callback`
+endpoint on one process. Open your bot in Telegram and run `/connect` to verify.
 
-**Update the package list:**
-```bash
-sudo apt update
-```
-
-**Install Python, Git, and the OCR engine:**
-```bash
-sudo apt install -y python3-venv python3-pip git tesseract-ocr
-```
-
-**Download the bot into `~/receiptbot`:**
-```bash
-git clone https://github.com/edison9733/receipt_bot.git ~/receiptbot
-```
-
-**Go into the folder:**
-```bash
-cd ~/receiptbot
-```
-
-**Create an isolated Python environment:**
-```bash
-python3 -m venv venv
-```
-
-**Turn the environment on:**
-```bash
-source venv/bin/activate
-```
-
-**Install all Python dependencies:**
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Part 8 — 🔑 One-time Google login (creates `token.json`)
-
-**Copy your OAuth key from the Mac into the VM:**
-```bash
-cp /Users/$USER/Downloads/client_secret.json ~/receiptbot/
-```
-*(OrbStack shares your Mac files. If your Mac/VM usernames differ, use the full Mac path.)*
-
-**Start the one-time login:**
-```bash
-python authorize.py
-```
-
-It prints a URL. **Open that URL in your Mac's browser**, sign in, and approve Drive +
-Sheets access. OrbStack forwards the login port automatically, so it just works. When it
-says *"authentication flow has completed,"* it has written **`token.json`** — you never log
-in again (it auto-refreshes).
-
----
-
-## Part 9 — 📝 Configure your secrets (`/etc/receiptbot.env`)
-
-**Copy the template into place:**
-```bash
-sudo cp ~/receiptbot/receiptbot.env.template /etc/receiptbot.env
-```
-
-**Auto-fix the file paths to your username:**
-```bash
-sudo sed -i "s/apple/$USER/g" /etc/receiptbot.env
-```
-
-**Open it and paste your 4 values:**
-```bash
-sudo nano /etc/receiptbot.env
-```
-Fill in `TELEGRAM_TOKEN`, `DEEPSEEK_API_KEY`, `SHEET_ID`, `DRIVE_FOLDER_ID`.
-Save with **Ctrl-O, Enter**, exit with **Ctrl-X**.
-
-**Lock the file down (it holds secrets):**
-```bash
-sudo chmod 600 /etc/receiptbot.env
-```
-
----
-
-## Part 10 — 🏗️ Build the Google Sheet (run once)
-
-**Load your settings, then build the three tabs:**
-```bash
-set -a && source /etc/receiptbot.env && set +a && python setup_sheets.py
-```
-
-It prints a link and creates the **Expenses**, **Relief**, and **Summary** tabs —
-colour-coded, with dropdowns and auto-totals. Re-runnable any time (it's idempotent).
-
----
-
-## Part 11 — 🧪 Test it
-
-**Run the bot in the foreground:**
-```bash
-set -a && source /etc/receiptbot.env && set +a && python bot.py
-```
-
-Now open Telegram, message your bot `/start`, then **send a receipt photo**. Watch it
-reply with a summary, appear in your Sheet, and file the image in Drive.
-Press **Ctrl-C** to stop the test.
-
----
-
-## Part 12 — ♾️ Run forever (auto-start on boot)
-
-**Install the background service:**
-```bash
-sudo cp ~/receiptbot/receiptbot.service /etc/systemd/system/receiptbot.service
-```
-
-**Auto-fix the username in the service:**
-```bash
-sudo sed -i "s/apple/$USER/g" /etc/systemd/system/receiptbot.service
-```
-
-**Tell systemd to read the new file:**
-```bash
-sudo systemctl daemon-reload
-```
-
-**Start it now and on every boot:**
-```bash
-sudo systemctl enable --now receiptbot
-```
-
-**Check it's running:**
-```bash
-systemctl status receiptbot
-```
-
-**Watch live logs (Ctrl-C to leave):**
-```bash
-journalctl -u receiptbot -f
-```
-
-🎉 **Done.** Send receipts any time — the bot is always on.
-
----
-
-## 📲 Daily usage
-
-- `/start` — welcome message.
-- `/help` — quick help.
-- **Send a photo** (or an image file) of any receipt → it's OCR'd, classified, filed, and logged.
-- Open your Google Sheet → the **Summary** tab shows totals and how much relief you have left.
+> **Telegram webhooks** are a clean Phase-2 swap (cheaper than polling on a hosted box);
+> polling works fine for the first cut.
 
 ---
 
@@ -361,7 +214,7 @@ Categories are listed **most-used → least-used** (matching the bot's dropdowns
 > [hasil.gov.my](https://www.hasil.gov.my) or with a licensed tax agent before filing.
 > To change a relief, cap or expense mapping, edit **`tax_config.py`** (the single source of
 > truth — verified against the LHDN YA 2025 schedule); **`categories.py`** is a thin adapter
-> over it. After any edit, re-run `setup_sheets.py`.
+> over it. The formatting/auto-totals are rebuilt for each user automatically on `/connect`.
 
 ---
 
@@ -386,22 +239,38 @@ return — and the bot prints the target box on each expense receipt's reply.
 
 ---
 
-## 🔁 Updating the bot later
+## 🔁 Updating / redeploying
 
-**Inside the VM:**
-```bash
-cd ~/receiptbot && git pull && source venv/bin/activate && pip install -r requirements.txt
-```
+Push changes, then redeploy your container on the host (Railway/Render/Fly/Cloud Run will
+rebuild from the new commit). The encrypted datastore on the mounted volume is preserved,
+so users stay connected. If you change relief categories in `tax_config.py`, existing users'
+sheets keep their current layout; new users get the updated layout on `/connect`.
 
-**Restart the service to load changes:**
-```bash
-sudo systemctl restart receiptbot
-```
+---
 
-If you edited categories, rebuild the Sheet:
-```bash
-set -a && source /etc/receiptbot.env && set +a && python setup_sheets.py
-```
+## 🔐 Security notes
+
+- You now **custody many users' secrets** (Google refresh tokens + DeepSeek keys). They are
+  **encrypted at rest** with Fernet using your `FERNET_KEY` — keep that key secret and never
+  commit it.
+- **Limited blast radius:** the bot uses only the least-privilege `drive.file` scope, so it can
+  touch **only the files it created** — never the rest of anyone's Drive.
+- **Never commit** `client_secret.json`, `*.env`, or the SQLite `*.db`. The included
+  [`.gitignore`](.gitignore) blocks all of them (and the `data/` volume dir).
+- `/setkey` **deletes** the user's message after reading, so keys aren't left in chat history.
+- Restrict who can use the bot with `AUTHORIZED_USERS` (comma-separated Telegram IDs).
+- `/disconnect` revokes the user's Google token and erases their row.
+
+---
+
+## 🧑‍💻 Run it for just yourself (self-host / developer)
+
+Prefer to run a single-user copy on your own machine instead of hosting for others? The
+original single-tenant path still ships in this repo: `authorize.py` (desktop Google login →
+`token.json`), `setup_sheets.py` (run once to build your sheet from env `SHEET_ID`),
+`receiptbot.env.template`, and `receiptbot.service` (systemd). You create your own OAuth
+client (Desktop type) and set `SHEET_ID` / `DRIVE_FOLDER_ID` yourself. This is good for a
+developer audience; for non-technical users, the hosted 3-tap flow above is the way.
 
 ---
 
@@ -409,34 +278,13 @@ set -a && source /etc/receiptbot.env && set +a && python setup_sheets.py
 
 | Symptom | Fix |
 |---|---|
-| Bot doesn't reply | `systemctl status receiptbot` and `journalctl -u receiptbot -f` to see the error. |
-| `SHEET_ID is not set` | You forgot to load env. Use the full `set -a && source … && python …` command. |
-| `client_secret.json not found` | Re-copy it into `~/receiptbot/` (Part 8). |
-| OCR returns nothing | Use a sharper, well-lit photo; confirm `tesseract --version` works. |
-| Drive `get()` 404 in logs | Harmless — the `drive.file` scope can't *read* your folder's metadata but *can* file into it. |
-| Categories look wrong | Edit `categories.py`, then re-run `setup_sheets.py`. |
-| Token expired / revoked | Delete `token.json` and re-run `python authorize.py`. |
-
----
-
-## 🔐 Security notes
-
-- **Never commit** `client_secret.json`, `token.json`, `service_account.json`, or your real
-  `/etc/receiptbot.env`. The included [`.gitignore`](.gitignore) blocks all of them.
-- The bot uses the **least-privilege** `drive.file` scope — it can only touch files **it**
-  creates, never the rest of your Drive.
-- To restrict who can use the bot, set `AUTHORIZED_USERS` (comma-separated Telegram user IDs)
-  in `/etc/receiptbot.env`. Leave it unset = anyone who finds the bot can use it.
-- `chmod 600` on `token.json` and `/etc/receiptbot.env` keeps them readable only by you.
-
----
-
-## ☁️ Alternative: run on a cloud server
-
-No Mac? The exact same steps work on any Ubuntu/Debian VPS (DigitalOcean, AWS, etc.) —
-**skip Part 6**, SSH into your server, and start at **Part 7**. For the one-time login in
-Part 8, run `authorize.py` on any computer with a browser, then copy the resulting
-`token.json` up to the server's `~/receiptbot/` folder.
+| `/connect` says "isn't fully set up" | Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `BASE_URL` on the host. |
+| Redirect URI mismatch on Google | The OAuth client's redirect URI must be exactly `${BASE_URL}/oauth2callback`. |
+| Users get logged out after ~7 days | The consent screen is still in **Testing** — publish it to **production**. |
+| "Google did not return a refresh token" | Run `/disconnect`, then `/connect` again (forces a fresh consent). |
+| OCR returns nothing | Use a sharper, well-lit photo; the Docker image already bundles Tesseract. |
+| Secrets won't decrypt after redeploy | `FERNET_KEY` changed — it must stay constant across deploys. |
+| Categories look wrong | Edit `tax_config.py`; new users pick it up on `/connect`. |
 
 ---
 
@@ -444,22 +292,26 @@ Part 8, run `authorize.py` on any computer with a browser, then copy the resulti
 
 | File | Purpose |
 |---|---|
-| `bot.py` | The Telegram bot: OCR → classify → Drive → Sheets. |
+| `app.py` | **Hosted entry point** — runs the bot (polling) + the `/oauth2callback` web server. |
+| `bot.py` | Telegram handlers + per-receipt processing (multi-tenant: per-user creds). |
+| `db.py` | Encrypted SQLite datastore — one row per Telegram user (Fernet at rest). |
+| `gauth.py` | Hosted Google OAuth: web flow, signed `state`, refresh-token credentials, revoke. |
+| `provision.py` | Auto-creates + formats each user's sheet & Receipts folder on `/connect`. |
 | `tax_config.py` | **Single source of truth** — LHDN YA 2025 reliefs, caps & Form B boxes. |
 | `categories.py` | Thin adapter over `tax_config.py` (the names bot & sheet import). |
-| `setup_sheets.py` | Builds/rebuilds the colour-coded Google Sheet (run once). |
-| `authorize.py` | One-time Google login that writes `token.json`. |
+| `setup_sheets.py` | Builds/rebuilds the colour-coded sheet (`build_sheet()`, reused by provisioning). |
+| `Dockerfile` | Python + `tesseract-ocr` image for any managed host. |
+| `.env.example` | Operator config template (copy to your host's env vars). |
 | `requirements.txt` | Pinned Python dependencies. |
-| `receiptbot.service` | systemd unit to run the bot 24/7. |
-| `receiptbot.env.template` | Copy to `/etc/receiptbot.env` and fill in your secrets. |
-| `.gitignore` | Keeps every secret out of Git. |
+| `authorize.py`, `receiptbot.service`, `receiptbot.env.template` | Legacy single-user / self-host path (see above). |
+| `.gitignore` | Keeps every secret + the datastore out of Git. |
 
 ---
 
 ## 🙌 Credits
 
 - **Author:** [@edison9733](https://github.com/edison9733)
-- **Sponsored by Brainard** 
+- **Sponsored by Brainard**
 
 ---
 

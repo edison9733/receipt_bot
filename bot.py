@@ -1,46 +1,43 @@
 #!/usr/bin/env python3
 """
-Telegram Receipt Bot — Malaysian Tax Edition
-OCR → DeepSeek classify (Expense vs Relief) → Google Drive (Type/Category folders) → Google Sheets (Expenses/Relief tabs).
+Telegram Receipt Bot — Malaysian Tax Edition (hosted, multi-tenant)
 
-Auth: OAuth user credentials (uploads land in YOUR Drive, owned by you).
+One hosted bot serves MANY users. Each user connects their OWN Google account
+(/connect) and pastes their OWN DeepSeek key (/setkey); the bot stores both
+(encrypted) and auto-provisions a personal Receipt Tracker sheet + Receipts
+Drive folder. Every receipt is OCR'd, classified (Expense vs tax Relief),
+filed into that user's Drive and logged to that user's Sheet.
+
+This module holds the Telegram handlers + per-receipt processing. The combined
+web + polling entry point lives in app.py, which calls register_handlers().
 """
 
 import os, io, re, json, logging, datetime, textwrap, subprocess, tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
 import httpx
 
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+    Application, CommandHandler, MessageHandler, filters, ContextTypes
 )
 
 import categories as cat
+import db
+import gauth
+import provision
 
 # ── Config ──────────────────────────────────────────────────────────────
-BOT_TOKEN       = os.environ["TELEGRAM_TOKEN"]
-SHEET_ID        = os.environ["SHEET_ID"]
-DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
-DEEPSEEK_URL    = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com/v1/chat/completions")
-DEEPSEEK_KEY    = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_MODEL  = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
-AUTHORIZED      = {int(x) for x in os.environ.get("AUTHORIZED_USERS", "").split(",") if x.strip()}
-
-CLIENT_SECRET_FILE = os.environ.get("GOOGLE_CLIENT_SECRET", "/home/apple/receiptbot/client_secret.json")
-TOKEN_FILE         = os.environ.get("GOOGLE_TOKEN_FILE", "/home/apple/receiptbot/token.json")
-
-SCOPES = [
-    "https://www.googleapis.com/auth/drive.file",
-    "https://www.googleapis.com/auth/spreadsheets",
-]
+DEEPSEEK_URL       = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com/v1/chat/completions")
+DEEPSEEK_MODEL     = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+SHARED_DEEPSEEK_KEY = os.environ.get("SHARED_DEEPSEEK_KEY", "")  # optional fallback you fund
+AUTHORIZED          = {int(x) for x in os.environ.get("AUTHORIZED_USERS", "").split(",") if x.strip()}
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO
@@ -49,40 +46,48 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("receiptbot")
 
 
-# ── Google auth (OAuth) ─────────────────────────────────────────────────
-def get_google_creds() -> Credentials:
-    creds = None
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            # Lazy import — only needed for the very first interactive auth.
-            from google_auth_oauthlib.flow import InstalledAppFlow
-            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-            creds = flow.run_local_server(port=0, open_browser=False)
-        with open(TOKEN_FILE, "w") as fh:
-            fh.write(creds.to_json())
-        os.chmod(TOKEN_FILE, 0o600)
-    return creds
+# ── Per-user Google services (built from the stored refresh token, cached) ─
+# Cache maps telegram_id → (refresh_token, SimpleNamespace(drive, sheets, ...)).
+# Keyed by the token so a /disconnect+reconnect transparently rebuilds.
+_svc_cache: dict[int, tuple[str, SimpleNamespace]] = {}
 
 
-_creds = get_google_creds()
-drive_svc  = build("drive", "v3", credentials=_creds, cache_discovery=False)
-sheets_svc = build("sheets", "v4", credentials=_creds, cache_discovery=False)
+def get_user_ctx(tid: int) -> SimpleNamespace | None:
+    """Return per-user services + ids, or None if the user hasn't connected."""
+    refresh = db.get_google_refresh_token(tid)
+    user = db.get_user(tid)
+    if not refresh or not user or not user.get("sheet_id"):
+        return None
+
+    cached = _svc_cache.get(tid)
+    if cached and cached[0] == refresh:
+        return cached[1]
+
+    creds = gauth.creds_from_refresh(refresh)
+    ctx = SimpleNamespace(
+        drive=build("drive", "v3", credentials=creds, cache_discovery=False),
+        sheets=build("sheets", "v4", credentials=creds, cache_discovery=False),
+        sheet_id=user["sheet_id"],
+        folder_id=user.get("drive_folder_id") or "",
+    )
+    _svc_cache[tid] = (refresh, ctx)
+    return ctx
+
+
+def effective_deepseek_key(tid: int) -> str:
+    """The user's own key if set, else the optional shared key you fund."""
+    return db.get_deepseek_key(tid) or SHARED_DEEPSEEK_KEY
 
 
 # ── Drive: two-level folder routing (Type → Category) ──────────────────
-_folder_cache: dict[tuple, str] = {}
+_folder_cache: dict[tuple, str] = {}  # (parent_id, name) → folder_id; parent ids are per-user
 
 
 def _drive_escape(name: str) -> str:
     return name.replace("\\", "\\\\").replace("'", "\\'")
 
 
-def _get_or_create_folder(parent_id: str, name: str) -> str:
-    """Return the Drive folder id for `name` under `parent_id`, creating it if needed."""
+def _get_or_create_folder(drive, parent_id: str, name: str) -> str:
     key = (parent_id, name)
     if key in _folder_cache:
         return _folder_cache[key]
@@ -91,7 +96,7 @@ def _get_or_create_folder(parent_id: str, name: str) -> str:
         f"'{parent_id}' in parents and name='{_drive_escape(name)}' "
         f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
     )
-    resp = drive_svc.files().list(q=q, fields="files(id,name)", spaces="drive").execute()
+    resp = drive.files().list(q=q, fields="files(id,name)", spaces="drive").execute()
     files = resp.get("files", [])
     if files:
         fid = files[0]["id"]
@@ -101,26 +106,27 @@ def _get_or_create_folder(parent_id: str, name: str) -> str:
             "mimeType": "application/vnd.google-apps.folder",
             "parents": [parent_id],
         }
-        fid = drive_svc.files().create(body=meta, fields="id").execute()["id"]
+        fid = drive.files().create(body=meta, fields="id").execute()["id"]
         log.info("Created Drive folder: %s", name)
     _folder_cache[key] = fid
     return fid
 
 
-def _target_folder(receipt_type: str, category: str) -> str:
-    """Root → 'Expenses'/'Relief' → category subfolder. Returns leaf folder id."""
+def _target_folder(drive, root_id: str, receipt_type: str, category: str) -> str:
+    """root → 'Expenses'/'Relief' → category subfolder. Returns leaf folder id."""
     type_name = cat.RELIEF_FOLDER if receipt_type == cat.TYPE_RELIEF else cat.EXPENSE_FOLDER
-    type_id = _get_or_create_folder(DRIVE_FOLDER_ID, type_name)
-    return _get_or_create_folder(type_id, cat.folder_name(category))
+    type_id = _get_or_create_folder(drive, root_id, type_name)
+    return _get_or_create_folder(drive, type_id, cat.folder_name(category))
 
 
-def upload_to_drive(image_bytes: bytes, filename: str, receipt_type: str, category: str) -> str:
-    if not DRIVE_FOLDER_ID:
+def upload_to_drive(drive, root_id: str, image_bytes: bytes, filename: str,
+                    receipt_type: str, category: str) -> str:
+    if not root_id:
         return ""
-    folder_id = _target_folder(receipt_type, category)
+    folder_id = _target_folder(drive, root_id, receipt_type, category)
     media = MediaIoBaseUpload(io.BytesIO(image_bytes), mimetype="image/jpeg", resumable=True)
     meta = {"name": filename, "parents": [folder_id]}
-    f = drive_svc.files().create(body=meta, media_body=media, fields="id,webViewLink").execute()
+    f = drive.files().create(body=meta, media_body=media, fields="id,webViewLink").execute()
     log.info("Uploaded %s → %s/%s", filename,
              cat.RELIEF_FOLDER if receipt_type == cat.TYPE_RELIEF else cat.EXPENSE_FOLDER,
              cat.folder_name(category))
@@ -128,7 +134,8 @@ def upload_to_drive(image_bytes: bytes, filename: str, receipt_type: str, catego
 
 
 # ── Sheets: route to Expenses or Relief tab ────────────────────────────
-def append_to_sheet(receipt_type: str, fields: dict, link: str, ocr_text: str):
+def append_to_sheet(sheets, sheet_id: str, receipt_type: str, fields: dict,
+                    link: str, ocr_text: str):
     ts = datetime.datetime.now().isoformat(timespec="seconds")
     merchant = fields.get("merchant") or "Unknown"
     date     = fields.get("date") or ""
@@ -149,8 +156,8 @@ def append_to_sheet(receipt_type: str, fields: dict, link: str, ocr_text: str):
         row = [ts, merchant, date, amount, tax, category, payment, items, link, raw, notes]
         rng = "Expenses!A:K"
 
-    sheets_svc.spreadsheets().values().append(
-        spreadsheetId=SHEET_ID, range=rng,
+    sheets.spreadsheets().values().append(
+        spreadsheetId=sheet_id, range=rng,
         valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS",
         body={"values": [row]},
     ).execute()
@@ -253,10 +260,10 @@ def _normalize(data: dict) -> tuple[str, dict]:
     return rtype, fields
 
 
-def classify_and_extract(ocr_text: str) -> tuple[str, dict]:
-    if DEEPSEEK_URL and DEEPSEEK_KEY:
+def classify_and_extract(ocr_text: str, deepseek_key: str) -> tuple[str, dict]:
+    if DEEPSEEK_URL and deepseek_key:
         headers = {"Content-Type": "application/json",
-                   "Authorization": f"Bearer {DEEPSEEK_KEY}"}
+                   "Authorization": f"Bearer {deepseek_key}"}
         payload = {
             "model": DEEPSEEK_MODEL,
             "messages": [
@@ -321,27 +328,134 @@ def _regex_fallback(ocr_text: str) -> tuple[str, dict]:
     return rtype, fields
 
 
-# ── Telegram handlers ──────────────────────────────────────────────────
+# ── Telegram command handlers ──────────────────────────────────────────
+def _authorized(uid: int) -> bool:
+    return not AUTHORIZED or uid in AUTHORIZED
+
+
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if db.is_connected(uid):
+        await update.message.reply_text(
+            "👋 You're all set! Just send a receipt photo and I'll OCR it, sort it into "
+            "*Expense* or *tax Relief*, file the image in your Drive and log it to your Sheet.\n\n"
+            "/status — see your setup   ·   /setkey — update your DeepSeek key",
+            parse_mode="Markdown",
+        )
+        return
     await update.message.reply_text(
-        "📸 Send me a receipt photo.\n\n"
-        "I'll OCR it, decide if it's a *tax Relief* or an *Expense*, file the image into "
-        "the matching Google Drive folder, and log it to the right Google Sheets tab.",
+        "👋 *Welcome to Receipt Bot* — Malaysian tax edition.\n\n"
+        "Two quick steps and you're done:\n"
+        "1️⃣  /connect — link your Google account (I'll auto-create your Receipt Tracker "
+        "sheet + Receipts folder)\n"
+        "2️⃣  /setkey `sk-...` — paste your DeepSeek key\n\n"
+        "Then just send a receipt photo. 📸",
         parse_mode="Markdown",
     )
 
 
 async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "/start — welcome\n/help — this message\n\n"
-        "Just send a receipt photo (or an image file) and I'll handle the rest."
+        "*Commands*\n"
+        "/connect — link your Google account (auto-creates your sheet + folder)\n"
+        "/setkey `sk-...` — set your DeepSeek API key (I delete the message after)\n"
+        "/status — show your connection + links\n"
+        "/disconnect — revoke Google access and erase your data\n\n"
+        "Then just send a receipt photo and I'll handle the rest.",
+        parse_mode="Markdown",
     )
 
 
-async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if AUTHORIZED and user_id not in AUTHORIZED:
+async def connect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not _authorized(uid):
         await update.message.reply_text("⛔ Not authorized.")
+        return
+    if not gauth.is_configured():
+        await update.message.reply_text(
+            "⚠️ This bot isn't fully set up for hosting yet (missing OAuth config). "
+            "Ask the operator to set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / BASE_URL."
+        )
+        return
+    url = gauth.consent_url(uid)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Connect Google", url=url)]])
+    await update.message.reply_text(
+        "Tap to connect your Google account. You'll see Google's normal consent screen — "
+        "approve it and come back here. I'll auto-create your Receipt Tracker sheet.",
+        reply_markup=kb,
+    )
+
+
+async def setkey(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not _authorized(uid):
+        await update.message.reply_text("⛔ Not authorized.")
+        return
+    key = (ctx.args[0].strip() if ctx.args else "")
+    # Delete the user's message ASAP so the key isn't left in chat history.
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+    if not key or not key.startswith("sk-"):
+        await ctx.bot.send_message(
+            uid, "Usage: send `/setkey sk-...` with your DeepSeek key.",
+            parse_mode="Markdown",
+        )
+        return
+    db.set_deepseek_key(uid, key)
+    await ctx.bot.send_message(
+        uid, "🔑 DeepSeek key saved (encrypted) and your message was deleted. "
+             "You're ready — send a receipt photo!"
+    )
+
+
+async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    user = db.get_user(uid)
+    google_ok = bool(user and user.get("google_refresh_token"))
+    key_ok = bool(db.get_deepseek_key(uid) or SHARED_DEEPSEEK_KEY)
+    lines = ["*Your setup*"]
+    lines.append(f"{'✅' if google_ok else '❌'} Google account "
+                 f"{'connected' if google_ok else '— tap /connect'}")
+    if user and user.get("sheet_id"):
+        lines.append(f"📊 [Your Receipt Tracker sheet]"
+                     f"(https://docs.google.com/spreadsheets/d/{user['sheet_id']})")
+    src = "your key" if db.get_deepseek_key(uid) else ("shared key" if SHARED_DEEPSEEK_KEY else "none")
+    lines.append(f"{'✅' if key_ok else '❌'} DeepSeek key — {src}"
+                 + ("" if key_ok else " (tap /setkey, or I'll use offline keyword matching)"))
+    await update.message.reply_text(
+        "\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True
+    )
+
+
+async def disconnect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    refresh = db.get_google_refresh_token(uid)
+    if refresh:
+        gauth.revoke(refresh)
+    _svc_cache.pop(uid, None)
+    db.delete_user(uid)
+    await update.message.reply_text(
+        "🧹 Done — I revoked Google access and erased your stored data "
+        "(your Sheet and Drive files stay in *your* Google account). "
+        "Run /connect anytime to start again.",
+        parse_mode="Markdown",
+    )
+
+
+# ── Receipt photo handler ──────────────────────────────────────────────
+async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not _authorized(uid):
+        await update.message.reply_text("⛔ Not authorized.")
+        return
+
+    user_ctx = get_user_ctx(uid)
+    if user_ctx is None:
+        await update.message.reply_text(
+            "🔗 First connect your Google account with /connect — then send the receipt again."
+        )
         return
 
     msg = await update.message.reply_text("⏳ Downloading image…")
@@ -355,7 +469,7 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     img_bytes = bytes(await file.download_as_bytearray())
-    log.info("Downloaded %d bytes from user %d", len(img_bytes), user_id)
+    log.info("Downloaded %d bytes from user %d", len(img_bytes), uid)
 
     try:
         await msg.edit_text("🔍 Running OCR…")
@@ -366,23 +480,26 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         log.info("OCR: %d chars", len(ocr_text))
 
         await msg.edit_text("🧠 Classifying (Relief vs Expense)…")
-        receipt_type, fields = classify_and_extract(ocr_text)
+        receipt_type, fields = classify_and_extract(ocr_text, effective_deepseek_key(uid))
         category = fields["category"]
 
         drive_link = ""
-        if DRIVE_FOLDER_ID:
+        if user_ctx.folder_id:
             await msg.edit_text("📤 Filing into Google Drive…")
             date_prefix = fields["date"] or datetime.date.today().isoformat()
             safe_merchant = re.sub(r"[^\w\s-]", "", fields["merchant"])[:30].strip() or "receipt"
             filename = f"{date_prefix}_{safe_merchant}.jpg"
             try:
-                drive_link = upload_to_drive(img_bytes, filename, receipt_type, category)
+                drive_link = upload_to_drive(
+                    user_ctx.drive, user_ctx.folder_id, img_bytes, filename,
+                    receipt_type, category)
             except Exception as e:
                 log.error("Drive upload failed: %s", e)
                 drive_link = "upload failed"
 
         await msg.edit_text("📊 Logging to Google Sheets…")
-        append_to_sheet(receipt_type, fields, drive_link, ocr_text)
+        append_to_sheet(user_ctx.sheets, user_ctx.sheet_id, receipt_type,
+                        fields, drive_link, ocr_text)
 
         icon = "📗 Relief" if receipt_type == cat.TYPE_RELIEF else "📘 Expense"
         amount = fields["total"]
@@ -414,32 +531,17 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Failed: {e}")
 
 
-# ── Main (Python 3.14-safe event loop) ─────────────────────────────────
-def main():
-    import asyncio, signal
-
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
-
-    log.info("Bot started. Authorized users: %s", AUTHORIZED or "ALL")
-
-    async def run():
-        stop_event = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, stop_event.set)
-        async with app:
-            await app.updater.start_polling(drop_pending_updates=True)
-            await app.start()
-            await stop_event.wait()
-            await app.updater.stop()
-            await app.stop()
-            await app.shutdown()
-
-    asyncio.run(run())
+# ── Wiring ──────────────────────────────────────────────────────────────
+def register_handlers(application: Application) -> None:
+    """Attach every handler to the PTB application (called by app.py)."""
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_cmd))
+    application.add_handler(CommandHandler("connect", connect))
+    application.add_handler(CommandHandler("setkey", setkey))
+    application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("disconnect", disconnect))
+    application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit("Run the hosted service with:  python app.py")

@@ -6,6 +6,13 @@ service_account.json
 receiptbot.env
 *.env
 !receiptbot.env.template
+!.env.example
+
+# ── Datastore (encrypted, but still user data — never commit) ──────────
+data/
+*.db
+*.sqlite
+*.sqlite3
 
 # ── Python ─────────────────────────────────────────────────────────────
 venv/

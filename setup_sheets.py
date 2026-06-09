@@ -36,14 +36,10 @@ from categories import (
 )
 
 # ── Config (env-driven; defaults work in the VM and on the Mac) ──────────
+# SHEET_ID is read by the CLI main() only. Per-user provisioning (provision.py)
+# imports build_sheet() and passes its own freshly-created spreadsheet id, so we
+# must NOT raise at import time when SHEET_ID is unset.
 SHEET_ID = os.environ.get("SHEET_ID")
-if not SHEET_ID:
-    raise SystemExit(
-        "❌ SHEET_ID is not set.\n"
-        "   Load your env first, then re-run:\n"
-        "     set -a && source /etc/receiptbot.env && set +a && python setup_sheets.py\n"
-        "   (or one-off:  SHEET_ID=your-sheet-id python setup_sheets.py )"
-    )
 TOKEN_FILE = os.environ.get("GOOGLE_TOKEN_FILE") or os.path.expanduser("~/receiptbot/token.json")
 CLIENT_SECRET_FILE = os.environ.get("GOOGLE_CLIENT_SECRET") or os.path.expanduser("~/receiptbot/client_secret.json")
 
@@ -159,8 +155,14 @@ DATA_END = 1000  # format/validate rows 2..1000
 
 
 # ═══════════════════════════════════════════════════════════════════════
-def main():
-    service = build("sheets", "v4", credentials=get_creds(), cache_discovery=False)
+def build_sheet(service, sheet_id):
+    """Create/format the 3-tab Receipt Tracker on an existing spreadsheet id.
+
+    Idempotent and reused by BOTH the CLI ``main()`` (single-user, env SHEET_ID)
+    and per-user provisioning (provision.py passes a freshly-created sheet id).
+    `service` is an authorised Sheets API v4 resource.
+    """
+    SHEET_ID = sheet_id
     ss = service.spreadsheets()
 
     # ── Existing tabs ───────────────────────────────────────────────────
@@ -513,6 +515,19 @@ def main():
     print(f"   📦 Form B   — {len(ordered_boxes)} Part-N boxes ({', '.join(ordered_boxes)})")
     print(f"   📊 Summary  — auto-totals, most-used first")
     print(f"\n🔗 https://docs.google.com/spreadsheets/d/{SHEET_ID}")
+
+
+def main():
+    """CLI entry: single-user path that reads SHEET_ID + token.json from env."""
+    if not SHEET_ID:
+        raise SystemExit(
+            "❌ SHEET_ID is not set.\n"
+            "   Load your env first, then re-run:\n"
+            "     set -a && source /etc/receiptbot.env && set +a && python setup_sheets.py\n"
+            "   (or one-off:  SHEET_ID=your-sheet-id python setup_sheets.py )"
+        )
+    service = build("sheets", "v4", credentials=get_creds(), cache_discovery=False)
+    build_sheet(service, SHEET_ID)
 
 
 if __name__ == "__main__":
