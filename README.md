@@ -407,7 +407,7 @@ Part 8, run `authorize.py` on any computer with a browser, then copy the resulti
 ## 🙌 Credits
 
 - **Author:** [@edison9733](https://github.com/edison9733)
-- **Sponsored by Brainard** 💚
+- **Sponsored by Brainard** 
 
 ---
 
