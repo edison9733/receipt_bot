@@ -89,20 +89,28 @@ def _pretty(iso):
 
 WHITE = rgb(255, 255, 255)
 
-# Expenses — Deep Blue
-EXP_HDR_BG = rgb(13, 71, 161)
-EXP_SUB    = rgb(187, 222, 251)
-EXP_ALT    = rgb(30, 136, 229)    # stripe: medium blue (matches tab) → white text
-EXP_TAB    = rgb(30, 136, 229)
+# ── Slate Professional palette (from user template .xlsx) ──────────────
+# One cohesive slate-grey palette for every tab.
+SLATE_900 = rgb(15, 23, 42)       # #0F172A  titles / total-row bold text
+SLATE_800 = rgb(30, 41, 59)       # #1E293B  header bg + body text
+SLATE_500 = rgb(100, 116, 139)    # #64748B  tab colour / footnote text
+SLATE_100 = rgb(241, 245, 249)    # #F1F5F9  sub-header / total-row bg
+SLATE_50  = rgb(248, 250, 252)    # #F8FAFC  alternating stripe (subtle)
 
-# Relief — Deep Green
-REL_HDR_BG = rgb(27, 94, 32)
-REL_SUB    = rgb(200, 230, 201)
-REL_ALT    = rgb(56, 142, 60)     # stripe: medium green (matches tab) → white text
-REL_TAB    = rgb(56, 142, 60)
+# Expenses
+EXP_HDR_BG = SLATE_800
+EXP_SUB    = SLATE_100
+EXP_ALT    = SLATE_50
+EXP_TAB    = SLATE_500
 
-# Summary — Deep Purple tab
-SUM_TAB    = rgb(142, 36, 170)
+# Relief (same palette — visually unified)
+REL_HDR_BG = SLATE_800
+REL_SUB    = SLATE_100
+REL_ALT    = SLATE_50
+REL_TAB    = SLATE_500
+
+# Summary
+SUM_TAB    = SLATE_800
 
 
 # ── Headers (MUST match bot.py append order exactly) ────────────────────
@@ -241,16 +249,14 @@ def main():
                       "startColumnIndex": 0, "endColumnIndex": n},
             "bottom": {"style": "SOLID_MEDIUM", "colorStyle": {"rgbColor": cfg["hdr_bg"]}}}})
 
-        # Whole data area: WRAP + top-align + explicit dark text so every row is
-        # equally readable regardless of whether the stripe CF applies on top.
-        DARK = rgb(30, 30, 30)
+        # Whole data area: WRAP + top-align + Slate 800 text on every row.
         fmt.append({"repeatCell": {
             "range": {"sheetId": sid, "startRowIndex": 1, "endRowIndex": DATA_END,
                       "startColumnIndex": 0, "endColumnIndex": n},
             "cell": {"userEnteredFormat": {
                 "wrapStrategy": "WRAP",
                 "verticalAlignment": "TOP",
-                "textFormat": {"foregroundColor": DARK, "fontSize": 10,
+                "textFormat": {"foregroundColor": SLATE_800, "fontSize": 10,
                                "fontFamily": "Google Sans"},
             }},
             "fields": "userEnteredFormat(wrapStrategy,verticalAlignment,textFormat)"}})
@@ -279,8 +285,7 @@ def main():
                 "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": i, "endIndex": i + 1},
                 "properties": {"pixelSize": w}, "fields": "pixelSize"}})
 
-        # Alternating row stripes — medium-colour background + white bold text so
-        # stripe rows are always clearly readable (CF overrides base cell format).
+        # Alternating row stripes — very subtle Slate 50 tint, same dark text.
         fmt.append({"addConditionalFormatRule": {"rule": {
             "ranges": [{"sheetId": sid, "startRowIndex": 1, "endRowIndex": DATA_END,
                         "startColumnIndex": 0, "endColumnIndex": n}],
@@ -289,7 +294,7 @@ def main():
                               "values": [{"userEnteredValue": "=ISEVEN(ROW())"}]},
                 "format": {
                     "backgroundColor": cfg["alt"],
-                    "textFormat": {"foregroundColor": WHITE, "bold": False},
+                    "textFormat": {"foregroundColor": SLATE_800},
                 }}},
             "index": 0}})
 
@@ -396,8 +401,7 @@ def main():
 
     def band(r1, bg, size, white=False, bold=True, fields="backgroundColor,textFormat"):
         tf = {"bold": bold, "fontSize": size, "fontFamily": "Google Sans"}
-        if white:
-            tf["foregroundColor"] = WHITE
+        tf["foregroundColor"] = WHITE if white else SLATE_800
         return {"repeatCell": {
             "range": {"sheetId": sum_id, "startRowIndex": r1 - 1, "endRowIndex": r1,
                       "startColumnIndex": 0, "endColumnIndex": 4},
@@ -440,18 +444,20 @@ def main():
             "fields": "userEnteredFormat(wrapStrategy,verticalAlignment)"}})
 
     # Top info banner (assessment year + filing deadlines + retention)
-    sfmt.append(band(banner1, SUM_TAB,            13, white=True))
-    sfmt.append(band(banner2, rgb(243, 229, 245),  9, bold=False))
+    sfmt.append(band(banner1, SLATE_800, 13, white=True))
+    sfmt.append(band(banner2, SLATE_100,  9, bold=False))
 
-    # Banners, sub-headers, totals
-    sfmt.append(band(exp_title, EXP_HDR_BG, 14, white=True))
-    sfmt.append(band(exp_sub,   EXP_SUB,    10))
-    sfmt.append(band(exp_total, EXP_HDR_BG, 11, white=True))
-    sfmt.append(band(box_title, EXP_HDR_BG, 12, white=True))
-    sfmt.append(band(box_sub,   EXP_SUB,    10))
-    sfmt.append(band(rel_title, REL_HDR_BG, 14, white=True))
-    sfmt.append(band(rel_sub,   REL_SUB,    10))
-    sfmt.append(band(rel_total, REL_HDR_BG, 11, white=True))
+    # Section titles: dark slate + white text
+    sfmt.append(band(exp_title, SLATE_800, 14, white=True))
+    sfmt.append(band(box_title, SLATE_800, 12, white=True))
+    sfmt.append(band(rel_title, SLATE_800, 14, white=True))
+
+    # Sub-headers + totals: light slate bg + dark text (matches template total row)
+    sfmt.append(band(exp_sub,   SLATE_100, 10))
+    sfmt.append(band(exp_total, SLATE_100, 11))
+    sfmt.append(band(box_sub,   SLATE_100, 10))
+    sfmt.append(band(rel_sub,   SLATE_100, 10))
+    sfmt.append(band(rel_total, SLATE_100, 11))
 
     # Centre the numeric sub-header labels
     for sub in (exp_sub, box_sub, rel_sub):
@@ -461,13 +467,13 @@ def main():
             "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
             "fields": "userEnteredFormat.horizontalAlignment"}})
 
-    # Footnotes (LHDN caps / ITA notes): small grey italic, spills across the row
+    # Footnotes (LHDN caps / ITA notes): small Slate-500 italic
     sfmt.append({"repeatCell": {
         "range": {"sheetId": sum_id, "startRowIndex": note1 - 1, "endRowIndex": note4,
                   "startColumnIndex": 0, "endColumnIndex": 4},
         "cell": {"userEnteredFormat": {"textFormat": {
             "italic": True, "fontSize": 9, "fontFamily": "Google Sans",
-            "foregroundColor": rgb(110, 110, 110)}}},
+            "foregroundColor": SLATE_500}}},
         "fields": "userEnteredFormat.textFormat"}})
 
     # Summary column widths + tab colour + no freeze
