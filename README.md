@@ -57,24 +57,66 @@ line-by-line** against the official LHDN YA 2025 list — see the
 - **Auto-totalled Sheet.** A Summary tab sums each category and shows relief left to claim.
 - **Auto-growing rows.** Long text wraps and the row grows in height — never overflows neighbours.
 - **Most-used first.** Dropdowns are ordered common → rare, so you never scroll.
-- **Zero install for users.** Tap **Connect Google**, paste a DeepSeek key — that's the whole setup.
+- **One command to start.** `docker run ...` is the entire install — baked-in OCR (Tesseract), auto-generated encryption key, Google OAuth client already baked in by the operator. No OrbStack, no VM, no Python.
 - **Your data stays yours.** Files are created in *your* Google account; the bot only ever
   touches files **it** created (least-privilege `drive.file` scope). Stored secrets are
-  **encrypted at rest**.
+  **encrypted at rest** on your own machine's named Docker volume.
 
 ---
 
-## 🚀 Use it (for users) — 3 taps
+## 🚀 Quickstart — one command
 
-1. Open Telegram → message the bot → **/start**.
-2. **/connect** → tap **🔗 Connect Google** → approve Google's consent screen.
-   *(The bot auto-creates your **Receipt Tracker** sheet and a **Receipts** Drive folder.)*
-3. **/setkey** `sk-...` → paste your DeepSeek key (the bot deletes the message right after).
+> ### Install
+>
+> **Prerequisite:** Install **Docker Desktop** → https://www.docker.com/products/docker-desktop/ — open it once and leave it running.
+>
+> ---
+>
+> **1. Create your Telegram bot.** In Telegram, open **@BotFather**, then send:
+> ```
+> /newbot
+> ```
+> Reply with any name, then a username ending in `bot`. Copy the token it gives you (looks like `123456789:AAE...`).
+>
+> ---
+>
+> **2. Start the bot.** Paste this into Terminal (macOS/Linux) or PowerShell (Windows), replacing `PASTE_TELEGRAM_TOKEN`:
+> ```
+> docker run -d --name receiptbot --restart unless-stopped --pull always -p 8080:8080 -v receiptbot:/app/data -e TELEGRAM_TOKEN=PASTE_TELEGRAM_TOKEN ghcr.io/edison9733/receipt-bot:latest
+> ```
+>
+> ---
+>
+> **3. Connect Google.** In Telegram, message **your new bot**:
+> ```
+> /start
+> ```
+> ```
+> /connect
+> ```
+> Tap the link → choose your Google account → **Continue** past the "Google hasn't verified this app" screen → **Allow**.
+>
+> ---
+>
+> **4. Add your DeepSeek key.** Get one at https://platform.deepseek.com (sign in → **API keys** → **Create**). Then in Telegram send:
+> ```
+> /setkey sk-PASTE_DEEPSEEK_KEY
+> ```
+>
+> ---
+>
+> **Done.** Send a receipt photo.
+>
+> **Update later:** rerun the command in step 2 (it auto‑pulls the newest version; your data is kept).
+>
+> **Stop / remove:** `docker rm -f receiptbot`
 
-Done. **Send a receipt photo** and it just works.
+**Even shorter — installer scripts** (verify Docker is running, prompt for token, start the container):
+- macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/edison9733/receipt_bot/main/install.sh | bash`
+- Windows PowerShell: `irm https://raw.githubusercontent.com/edison9733/receipt_bot/main/install.ps1 | iex`
 
-> No DeepSeek key? The bot still runs with an offline keyword fallback (just less accurate),
-> or the operator can fund a shared key for everyone.
+> No DeepSeek key? The bot still runs with an offline keyword fallback (just less accurate).
+> You can add one any time with `/setkey`.
 
 ### 📲 Commands
 
@@ -239,27 +281,32 @@ return — and the bot prints the target box on each expense receipt's reply.
 
 ---
 
-## 🔁 Updating / redeploying
+## 🔁 Updating
 
-Push changes, then redeploy your container on the host (Railway/Render/Fly/Cloud Run will
-rebuild from the new commit). The encrypted datastore on the mounted volume is preserved,
-so users stay connected. If you change relief categories in `tax_config.py`, existing users'
-sheets keep their current layout; new users get the updated layout on `/connect`.
+**Users (self-hosters):** just rerun the same `docker run` command from step 2 — `--pull always`
+fetches the newest image automatically. Your encrypted datastore (the named volume `receiptbot`)
+is preserved and your Google connection stays valid.
+
+**Operator (to ship a new build):** push to `main`. The GitHub Actions workflow builds a new
+image, injects the baked-in OAuth client, and pushes `ghcr.io/edison9733/receipt-bot:latest`.
+The next time any user runs the step-2 command they get the new image.
 
 ---
 
 ## 🔐 Security notes
 
-- You now **custody many users' secrets** (Google refresh tokens + DeepSeek keys). They are
-  **encrypted at rest** with Fernet using your `FERNET_KEY` — keep that key secret and never
-  commit it.
-- **Limited blast radius:** the bot uses only the least-privilege `drive.file` scope, so it can
-  touch **only the files it created** — never the rest of anyone's Drive.
-- **Never commit** `client_secret.json`, `*.env`, or the SQLite `*.db`. The included
-  [`.gitignore`](.gitignore) blocks all of them (and the `data/` volume dir).
-- `/setkey` **deletes** the user's message after reading, so keys aren't left in chat history.
-- Restrict who can use the bot with `AUTHORIZED_USERS` (comma-separated Telegram IDs).
-- `/disconnect` revokes the user's Google token and erases their row.
+- **Owner-lock.** The first person to send `/start` to your bot is auto-bound as the sole
+  owner — everyone else is silently ignored. Set `OWNER_ID=<your Telegram id>` at run time
+  to skip auto-bind and pin yourself explicitly.
+- **Encrypted datastore.** The Google refresh token and DeepSeek key are **Fernet-encrypted
+  at rest** on your named Docker volume (`receiptbot`). The key is auto-generated on first
+  start and never leaves your machine.
+- **Limited blast radius.** The bot uses only the least-privilege `drive.file` scope — it can
+  touch **only the files it created**, never the rest of your Drive.
+- `/setkey` **deletes** the message after reading, so your key isn't left in chat history.
+- `/disconnect` revokes the Google token and erases your stored row.
+- The Docker image bakes in the operator's OAuth client (ID + secret). These are injected at
+  build time from CI secrets — they are **not** in the source code.
 
 ---
 
@@ -270,7 +317,7 @@ original single-tenant path still ships in this repo: `authorize.py` (desktop Go
 `token.json`), `setup_sheets.py` (run once to build your sheet from env `SHEET_ID`),
 `receiptbot.env.template`, and `receiptbot.service` (systemd). You create your own OAuth
 client (Desktop type) and set `SHEET_ID` / `DRIVE_FOLDER_ID` yourself. This is good for a
-developer audience; for non-technical users, the hosted 3-tap flow above is the way.
+developer audience; for non-technical users, the Docker one-command install above is the way.
 
 ---
 
@@ -278,13 +325,15 @@ developer audience; for non-technical users, the hosted 3-tap flow above is the 
 
 | Symptom | Fix |
 |---|---|
-| `/connect` says "isn't fully set up" | Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `BASE_URL` on the host. |
-| Redirect URI mismatch on Google | The OAuth client's redirect URI must be exactly `${BASE_URL}/oauth2callback`. |
-| Users get logged out after ~7 days | The consent screen is still in **Testing** — publish it to **production**. |
-| "Google did not return a refresh token" | Run `/disconnect`, then `/connect` again (forces a fresh consent). |
-| OCR returns nothing | Use a sharper, well-lit photo; the Docker image already bundles Tesseract. |
-| Secrets won't decrypt after redeploy | `FERNET_KEY` changed — it must stay constant across deploys. |
-| Categories look wrong | Edit `tax_config.py`; new users pick it up on `/connect`. |
+| Bot doesn't respond at all | Check `docker logs receiptbot`. Make sure `TELEGRAM_TOKEN` is correct. |
+| `/connect` gives "isn't fully set up" | The prebuilt image should have the OAuth client baked in. If you built it yourself, set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. |
+| Google OAuth redirect mismatch | The Web client's **Authorized redirect URI** must be exactly `http://localhost:8080/oauth2callback`. |
+| Logged out after ~7 days | The consent screen is still in **Testing** — the operator must publish it to **production**. |
+| "Google did not return a refresh token" | Run `/disconnect`, then `/connect` again (forces fresh consent). |
+| OCR returns nothing | Use a sharper, well-lit photo; Tesseract is already in the image. |
+| Bot replies to wrong person / ignores me | `/start` from **your** Telegram account before anyone else (owner auto-bind). Or set `OWNER_ID=<your id>` at run time. |
+| Data lost after `docker rm -f receiptbot` | Use `--rm` only for disposable containers. The named volume `receiptbot` persists across `docker restart` and `docker run` reruns; data is lost only if you delete the volume. |
+| Categories look wrong | The pre-built image has the current categories baked in. Pull the latest image (`--pull always`) to get updates. |
 
 ---
 
@@ -292,19 +341,23 @@ developer audience; for non-technical users, the hosted 3-tap flow above is the 
 
 | File | Purpose |
 |---|---|
-| `app.py` | **Hosted entry point** — runs the bot (polling) + the `/oauth2callback` web server. |
-| `bot.py` | Telegram handlers + per-receipt processing (multi-tenant: per-user creds). |
-| `db.py` | Encrypted SQLite datastore — one row per Telegram user (Fernet at rest). |
-| `gauth.py` | Hosted Google OAuth: web flow, signed `state`, refresh-token credentials, revoke. |
+| `app.py` | Entry point — Telegram bot (polling) + `/oauth2callback` web endpoint. |
+| `bot.py` | Telegram handlers + per-receipt processing; owner-lock on first `/start`. |
+| `_bootstrap.py` | **First import** in `app.py` — auto-generates `FERNET_KEY` + sets `BASE_URL` default. |
+| `db.py` | Encrypted SQLite datastore (Fernet at rest) + owner-lock `settings` table. |
+| `gauth.py` | Google web OAuth flow, signed `state`, refresh-token creds, revoke. |
 | `provision.py` | Auto-creates + formats each user's sheet & Receipts folder on `/connect`. |
 | `tax_config.py` | **Single source of truth** — LHDN YA 2025 reliefs, caps & Form B boxes. |
 | `categories.py` | Thin adapter over `tax_config.py` (the names bot & sheet import). |
-| `setup_sheets.py` | Builds/rebuilds the colour-coded sheet (`build_sheet()`, reused by provisioning). |
-| `Dockerfile` | Python + `tesseract-ocr` image for any managed host. |
-| `.env.example` | Operator config template (copy to your host's env vars). |
+| `setup_sheets.py` | Builds/rebuilds the Slate-Professional Sheet (`build_sheet()`, reused by provisioning). |
+| `Dockerfile` | Python 3.12 + `tesseract-ocr`; OAuth client baked in at build time via `ARG`. |
+| `.github/workflows/docker.yml` | CI: build + push to `ghcr.io/edison9733/receipt-bot` on every `main` push. |
+| `install.sh` | macOS/Linux one-liner: check Docker, prompt for token, start container. |
+| `install.ps1` | Windows PowerShell equivalent. |
+| `.env.example` | Hosted-operator config template. |
 | `requirements.txt` | Pinned Python dependencies. |
-| `authorize.py`, `receiptbot.service`, `receiptbot.env.template` | Legacy single-user / self-host path (see above). |
-| `.gitignore` | Keeps every secret + the datastore out of Git. |
+| `authorize.py`, `receiptbot.service`, `receiptbot.env.template` | Legacy manual-install path (developer self-host). |
+| `.gitignore` | Blocks secrets, `.env` files, and the `data/` volume directory. |
 
 ---
 

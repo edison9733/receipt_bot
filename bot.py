@@ -34,10 +34,14 @@ import gauth
 import provision
 
 # ── Config ──────────────────────────────────────────────────────────────
-DEEPSEEK_URL       = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com/v1/chat/completions")
-DEEPSEEK_MODEL     = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_URL        = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com/v1/chat/completions")
+DEEPSEEK_MODEL      = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 SHARED_DEEPSEEK_KEY = os.environ.get("SHARED_DEEPSEEK_KEY", "")  # optional fallback you fund
 AUTHORIZED          = {int(x) for x in os.environ.get("AUTHORIZED_USERS", "").split(",") if x.strip()}
+# OWNER_ID: explicit single-owner override. When set, skips the auto-bind on /start
+# and uses this value directly. For single-user self-host the owner is auto-bound
+# from the first /start; for hosted multi-tenant use AUTHORIZED_USERS instead.
+OWNER_ID: int | None = int(os.environ["OWNER_ID"]) if os.environ.get("OWNER_ID") else None
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO
@@ -330,11 +334,37 @@ def _regex_fallback(ocr_text: str) -> tuple[str, dict]:
 
 # ── Telegram command handlers ──────────────────────────────────────────
 def _authorized(uid: int) -> bool:
-    return not AUTHORIZED or uid in AUTHORIZED
+    """Check whether this Telegram user may use the bot.
+
+    Priority:
+    1. Explicit allowlist (AUTHORIZED_USERS env) — multi-tenant use.
+    2. Explicit single owner (OWNER_ID env) — manual single-user pin.
+    3. Auto-bound owner (first /start user, stored in db) — self-host default.
+    4. No restriction configured → allow all (hosted open-access mode).
+    """
+    if AUTHORIZED:
+        return uid in AUTHORIZED
+    if OWNER_ID is not None:
+        return uid == OWNER_ID
+    owner = db.get_owner_id()
+    if owner is not None:
+        return uid == owner
+    return True  # no restriction set
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+
+    # ── Auto-bind on first /start (single-user self-host) ───────────────
+    # When no explicit AUTHORIZED_USERS or OWNER_ID is set, the very first
+    # person to send /start becomes the sole owner. Everyone else is then
+    # silently ignored — they can't write to the owner's Drive.
+    if not AUTHORIZED and OWNER_ID is None:
+        db.bind_owner_id(uid)  # idempotent; no-op after the first call
+
+    if not _authorized(uid):
+        return  # silently ignore non-owners
+
     if db.is_connected(uid):
         await update.message.reply_text(
             "👋 You're all set! Just send a receipt photo and I'll OCR it, sort it into "
@@ -369,8 +399,7 @@ async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def connect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not _authorized(uid):
-        await update.message.reply_text("⛔ Not authorized.")
-        return
+        return  # silently ignore non-owners
     if not gauth.is_configured():
         await update.message.reply_text(
             "⚠️ This bot isn't fully set up for hosting yet (missing OAuth config). "
@@ -389,8 +418,7 @@ async def connect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def setkey(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not _authorized(uid):
-        await update.message.reply_text("⛔ Not authorized.")
-        return
+        return  # silently ignore non-owners
     key = (ctx.args[0].strip() if ctx.args else "")
     # Delete the user's message ASAP so the key isn't left in chat history.
     try:
@@ -412,6 +440,8 @@ async def setkey(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    if not _authorized(uid):
+        return  # silently ignore non-owners
     user = db.get_user(uid)
     google_ok = bool(user and user.get("google_refresh_token"))
     key_ok = bool(db.get_deepseek_key(uid) or SHARED_DEEPSEEK_KEY)
@@ -431,6 +461,8 @@ async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def disconnect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    if not _authorized(uid):
+        return  # silently ignore non-owners
     refresh = db.get_google_refresh_token(uid)
     if refresh:
         gauth.revoke(refresh)
@@ -448,8 +480,7 @@ async def disconnect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not _authorized(uid):
-        await update.message.reply_text("⛔ Not authorized.")
-        return
+        return  # silently ignore non-owners
 
     user_ctx = get_user_ctx(uid)
     if user_ctx is None:

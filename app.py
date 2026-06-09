@@ -14,6 +14,8 @@ folder, and DM them to come back and /setkey.
 Run locally or in the container with:  python app.py
 """
 
+import _bootstrap  # noqa: F401,E402 — MUST be first: sets FERNET_KEY + BASE_URL before gauth/db import
+
 import os
 import signal
 import asyncio

@@ -74,7 +74,7 @@ def _connect() -> sqlite3.Connection:
 
 # ── Schema ──────────────────────────────────────────────────────────────
 def init_db() -> None:
-    """Create the users table if it doesn't exist (idempotent)."""
+    """Create the users + settings tables if they don't exist (idempotent)."""
     with _lock, _connect() as conn:
         conn.execute(
             """
@@ -86,6 +86,14 @@ def init_db() -> None:
                 drive_folder_id       TEXT,
                 created_at            TEXT,
                 updated_at            TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
             )
             """
         )
@@ -145,3 +153,27 @@ def is_connected(telegram_id: int) -> bool:
 def delete_user(telegram_id: int) -> None:
     with _lock, _connect() as conn:
         conn.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
+
+
+# ── Owner-lock (single-user self-host) ───────────────────────────────────
+def bind_owner_id(telegram_id: int) -> bool:
+    """Set the owner only if none is stored yet. Returns True if THIS call did it.
+
+    Uses INSERT OR IGNORE so concurrent first-starts are safe — exactly one user wins.
+    The winner becomes the sole owner; everyone else is silently ignored.
+    """
+    with _lock, _connect() as conn:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('owner_id', ?)",
+            (str(telegram_id),),
+        )
+        return cursor.rowcount == 1
+
+
+def get_owner_id() -> Optional[int]:
+    """Return the stored owner Telegram id, or None if no one has connected yet."""
+    with _lock, _connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'owner_id'"
+        ).fetchone()
+    return int(row[0]) if row else None
