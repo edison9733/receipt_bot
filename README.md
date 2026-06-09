@@ -1,6 +1,6 @@
 # 🧾 Telegram Receipt Bot — Malaysian Tax Edition
 
-> **Author:** [@edison9733](https://github.com/edison9733) &nbsp;•&nbsp; **Sponsored by Brainard** 💚
+> **Author:** [@edison9733](https://github.com/edison9733) &nbsp;•&nbsp; **Sponsored by Brainard** 
 
 Snap a receipt in Telegram. The bot reads it, decides if it's a **tax Relief** or a
 general **Expense**, files the photo into the matching **Google Drive** folder, and
